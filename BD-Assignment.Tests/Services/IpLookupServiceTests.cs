@@ -1,6 +1,5 @@
 ﻿using BD_Assignment.Models;
 using BD_Assignment.Services;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -24,6 +23,7 @@ public class IpLookupServiceTests
             StatusCode = HttpStatusCode.OK,
             Content = new StringContent(
                 @"{
+                    ""ip"": ""8.8.8.8"",
                     ""country_code"": ""US"",
                     ""country_name"": ""United States"",
                     ""isp"": ""Google LLC""
@@ -39,15 +39,13 @@ public class IpLookupServiceTests
 
         var httpClient = new HttpClient(mockHttpHandler.Object)
         {
-            BaseAddress = new System.Uri("https://api.ipapi.com/")
+            BaseAddress = new System.Uri("https://ipapi.co/")
         };
-
-        var configMock = new Mock<IConfiguration>();
-        configMock.Setup(x => x["IpApi:ApiKey"]).Returns("test_key");
 
         var loggerMock = new Mock<ILogger<IpLookupService>>();
 
-        var service = new IpLookupService(httpClient, configMock.Object, loggerMock.Object);
+        // Now only 2 dependencies (HttpClient and ILogger)
+        var service = new IpLookupService(httpClient, loggerMock.Object);
 
         // Act
         var result = await service.GetCountryFromIpAsync("8.8.8.8");
@@ -57,5 +55,33 @@ public class IpLookupServiceTests
         Assert.Equal("US", result.CountryCode);
         Assert.Equal("United States", result.CountryName);
         Assert.Equal("Google LLC", result.ISP);
+    }
+
+    [Fact]
+    public async Task GetCountryFromIpAsync_ThrowsOnApiError()
+    {
+        // Arrange
+        var mockHttpHandler = new Mock<HttpMessageHandler>();
+        mockHttpHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.InternalServerError
+            });
+
+        var httpClient = new HttpClient(mockHttpHandler.Object)
+        {
+            BaseAddress = new System.Uri("https://ipapi.co/")
+        };
+
+        var loggerMock = new Mock<ILogger<IpLookupService>>();
+        var service = new IpLookupService(httpClient, loggerMock.Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => service.GetCountryFromIpAsync("8.8.8.8"));
     }
 }
